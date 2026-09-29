@@ -16,19 +16,24 @@ system = {}
 system["h"] = {"ode": dh_dt, "name": "h", "name_long": "height (m)"}
 system["s"] = {"ode": ds_dt, "name": "s", "name_long": "liquid-water static energy (J/kg)"}
 system["q"] = {"ode": dq_dt, "name": "q", "name_long": "total-water specific humidity (kg/kg)"}
+system["u"] = {"ode": du_dt, "name": "u", "name_long": "zonal wind (m/s)"}
+system["v"] = {"ode": dv_dt, "name": "v", "name_long": "meridional wind (m/s)"}
 num_vars = len(system)
 
 h_initial = 300.0  # m, boundary-layer height
 system["h"]["ics"] = h_initial  # m, boundary-layer height
 system["s"]["ics"] = s_env(h_initial * 0.5)  # J /kg, liquid-water static energy
 system["q"]["ics"] = q_env(h_initial * 0.5)  # total-water specific humidity
+system["u"]["ics"] = u_env(h_initial * 0.5)  # bulk u wind
+system["v"]["ics"] = v_env(h_initial * 0.5)  # bulk v wind
 
 # define the surface parametrization you want to use
-# gs.sflux_s = Fs_diurnal
-# gs.sflux_q = Fq_diurnal
+#gs.sflux_s = Fs_constant
+#gs.sflux_q = Fq_constant
 gs.sflux_s = Fs_diurnal
 gs.sflux_q = Fq_diurnal
-
+gs.sflux_u = Fu_bulk
+gs.sflux_v = Fv_bulk
 # define the entrainment parametrization you want to use
 gs.E = E_free_convection
 
@@ -62,7 +67,10 @@ for idx, item in enumerate(system.values()):
         gs.idx_s = idx
     if item["name"] == "q":
         gs.idx_q = idx
-
+    if item["name"] == "u":
+        gs.idx_u = idx
+    if item["name"] == "v":
+        gs.idx_v = idx
 # do simulation
 sol = solve_ivp(tendency, [times[0], times[-1]], state, RK23, t_eval=times)
 print(sol.message)
@@ -88,4 +96,39 @@ PlotProfiles(
     sol.y[:, time_indices],
     var_names,
     "profiles",
+)
+
+diag = compute_diagnostics(sol.t, sol.y)
+
+PlotDiagnostics(
+    sol.t,
+    {
+        "entrainment (m/s)": diag["entrainment (m/s)"],
+        "surface-flux (m/s)": diag["surfaceflux (m/s)"],
+        "Sum of fluxes (m/s)": diag["Sum of fluxes (m/s)"],
+        "coriolis (m/s)": diag["coriolis (m/s)"],
+        "v_mag (m/s)": diag["v_mag (m/s)"],
+    },
+    "diagnostics_magnitude",
+)
+
+
+import surface
+
+C_values = [0.001, 0.001*0.9,0.001* 1.1]
+diag_runs = {}
+
+for C_val in C_values:
+    surface.C = C_val
+
+    state_sweep = np.array([item["ics"] for item in system.values()])
+    sol_sweep = solve_ivp(tendency, [times[0], times[-1]], state_sweep, RK23, t_eval=times)
+
+    diag_runs[f"C={C_val}"] = compute_diagnostics(sol_sweep.t, sol_sweep.y)
+
+PlotDiagnosticsMultiRun(
+    times,
+    diag_runs,
+    ["entrainment (m/s)", "surfaceflux (m/s)", "Sum of fluxes (m/s)", "coriolis (m/s)", "v_mag (m/s)"],
+    "diagnostics_Ccompare",
 )
